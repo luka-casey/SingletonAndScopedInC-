@@ -1,0 +1,43 @@
+@page "/"
+@rendermode InteractiveServer
+
+@inject AuthState AuthState
+@inject NavigationManager Navigation
+
+<h3>Login</h3>
+
+<div>
+    <input @bind="Username" placeholder="Username" />
+</div>
+
+<div>
+    <input @bind="Password" type="password" placeholder="Password" />
+</div>
+
+<div>
+    <button @onclick="LoginToPage">Login</button>
+</div>
+
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <p>@ErrorMessage</p>
+}
+
+@code {
+    private string Username = "";
+    private string Password = "";
+    private string ErrorMessage = "";
+
+    private void LoginToPage()
+    {
+        if (Username == "admin" && Password == "admin")
+        {
+            AuthState.Login();
+            Navigation.NavigateTo("/progress");
+        }
+        else
+        {
+            ErrorMessage = "Invalid username or password.";
+        }
+    }
+}

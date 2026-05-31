@@ -1,0 +1,91 @@
+@page "/progress"
+
+@rendermode InteractiveServer
+
+@inject ProgressState ProgressState
+@inject AuthState AuthState
+@inject NavigationManager Navigation
+
+@if(AuthState.IsLoggedIn == true)
+{
+    <h3>Progress</h3>
+
+    <p>Current Step: @ProgressState.CurrentStep</p>
+
+    <button @onclick="PreviousStep" disabled="@(ProgressState.CurrentStep == 1)">
+        Previous
+    </button>
+
+    <button @onclick="NextStep" disabled="@(ProgressState.CurrentStep == 3)">
+        Next
+    </button>
+
+    <ul>
+        <li>Step 1 @(ProgressState.CurrentStep >= 1 ? "✓" : "")</li>
+        <li>Step 2 @(ProgressState.CurrentStep >= 2 ? "✓" : "")</li>
+        <li>Step 3 @(ProgressState.CurrentStep >= 3 ? "✓" : "")</li>
+    </ul>
+}
+else 
+{
+    <p>Access denied.</p>
+
+    <button @onclick="GoToLogin">
+        Go to Login
+    </button>
+}
+
+
+@code {
+
+    #region Singleton Shares State
+
+    //“Hey ProgressState, call me when something changes.”
+    //This line creates a subscription, but more precisely It adds your component’s method to an in-memory event list.
+    //A server side memory subscrtion
+    //a server-side in-memory event subscription
+    protected override void OnInitialized()
+    {
+        ProgressState.OnChange += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    //Dispose runs when the Blazor component is destroyed, which often happens 
+    //when the circuit ends or the user navigates away — but not strictly every time 
+    //the connection drops.
+    public void Dispose()
+    {
+        //“Remove this component from the notification list”
+        ProgressState.OnChange -= HandleStateChanged; 
+    }
+    
+    #endregion
+
+    private void NextStep()
+    {
+        if (ProgressState.CurrentStep < 3)
+            ProgressState.CurrentStep++;
+    }
+
+    private void PreviousStep()
+    {
+        if (ProgressState.CurrentStep > 1)
+            ProgressState.CurrentStep--;
+    }
+
+    private void Logout()
+    {
+        AuthState.Logout();
+        Navigation.NavigateTo("/");
+    }
+
+    private void GoToLogin()
+    {
+        Console.WriteLine("Clicked");
+        Navigation.NavigateTo("/");
+    }
+}
