@@ -1,98 +1,75 @@
-# Sharing Live State Across Users in Blazor Server: Singletons vs. Scoped Services
+# Blazor Server State Sharing: Singleton vs Scoped
 
-## Introduction
+## Overview
 
-Building a real-time, collaborative web application often requires balancing two competing needs:
-1. **Global, live state** that all users see instantly (think: shared progress, live notifications, or leaderboards)
-2. **Per-user isolation** for authentication, preferences, or private data
+This project is a small Blazor Server app that demonstrates how to share live state across users while keeping individual session state isolated.
 
-In this article, I'll walk you through how to achieve both in a **Blazor Server** application using .NET's dependency injection system. We'll use a real-world example: a progress tracker that updates live for all users, but requires individual login.
+It uses two service lifetimes:
 
-## The Challenge
+- `Singleton` for shared, application-wide data
+- `Scoped` for per-user session data
 
-Imagine you're building a wizard or multi-step form that displays progress in real-time. You want:
-- All connected users to see progress updates **instantly**
-- Each user to have their own **separate login state**
-- No database calls or external infrastructure for demo simplicity
-- Proper cleanup when components are destroyed
+This is a common pattern for business applications such as dashboards, ETL monitors, workflow trackers, and collaborative status pages.
 
-Blazor Server's in-memory DI system makes this surprisingly elegant.
+## Business Use Cases
 
-## The Solution: Singleton + Scoped Services
+### ETL progress monitor
+A central process runs an ETL workflow with multiple stages. Operators and stakeholders should all see the same current step in real time.
 
-### What Are Services and Lifetimes?
+### Workflow status dashboard
+A team needs a live view of a multi-step workflow. Everyone sees the same status, but each person has their own login and session.
 
-In ASP.NET Core (and Blazor Server), services are registered in the **dependency injection container** with one of three lifetimes:
+### Shared tracker with private user state
+Use shared progress or shared notifications while still keeping authentication, preferences, or private state scoped per user.
 
-| Lifetime | Instance Count | Scope | Use Case |
-|----------|---|---|---|
-| **Singleton** | One per app lifetime | Shared across all requests/circuits | Global state, caches, app-wide settings |
-| **Scoped** | One per request/circuit | Isolated per Blazor circuit | Per-user data, auth state |
-| **Transient** | One per injection | Always new | Stateless utilities, helpers |
+## What this app demonstrates
 
-### Our Approach
+### Shared state
+The `ProgressState` service is registered as a singleton.
+
+That means:
+- there is one shared `ProgressState` instance for the entire app
+- all connected users see the same `CurrentStep`
+- updating the step notifies every subscribed component
+
+### Per-user state
+The `AuthState` service is registered as scoped.
+
+That means:
+- each user circuit gets its own `AuthState`
+- login status is isolated per browser session/circuit
+- one user's login state does not affect another user's session
+
+## Core files
+
+- `Program.cs` - service registration and Blazor Server setup
+- `AuthState.cs` - scoped authentication state
+- `ProgressState.cs` - singleton progress state and change notifications
+- `Login.razor` - login page with scoped auth
+- `Progress.razor` - progress page with shared state subscription
+
+## How the app works
+
+### 1. Program startup
+
+`Program.cs` configures the Blazor Server app and registers services:
 
 ```csharp
-builder.Services.AddSingleton<ProgressState>();   // Shared across all users
-builder.Services.AddScoped<AuthState>();           // One per user's circuit
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+builder.Services.AddSingleton<ProgressState>();
+builder.Services.AddScoped<AuthState>();
 ```
 
-- **`ProgressState`** (Singleton): Holds `CurrentStep` and raises an `OnChange` event when the step updates. All connected users subscribe to this event.
-- **`AuthState`** (Scoped): Stores a simple `IsLoggedIn` boolean. Each user gets their own instance.
+- `AddSingleton<ProgressState>()` makes progress state available globally.
+- `AddScoped<AuthState>()` gives each user their own auth state.
 
-## Implementation Deep Dive
+### 2. AuthState: scoped user login
 
-### 1. The Singleton Service: Shared Progress State
-
-```csharp
-namespace BlazorApp1;
-
-public class ProgressState
-{
-    private readonly object _lock = new();
-
-    public event Action? OnChange;
-
-    private int _currentStep = 1;
-
-    public int CurrentStep
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return _currentStep;
-            }
-        }
-        set
-        {
-            Action? handlers = null;
-
-            lock (_lock)
-            {
-                if (_currentStep == value) return;
-
-                _currentStep = value;
-                handlers = OnChange;
-            }
-
-            // Invoke outside the lock
-            handlers?.Invoke();
-        }
-    }
-}
-```
-
-**Key Points:**
-- The `_lock` ensures thread-safe reads and writes when multiple user circuits update simultaneously.
-- We capture `OnChange` **inside** the lock, but invoke it **outside** to avoid potential deadlocks.
-- The property check (`if (_currentStep == value) return`) avoids redundant events.
-
-### 2. The Scoped Service: Per-User Authentication
+`AuthState.cs` is intentionally simple:
 
 ```csharp
-namespace BlazorApp1;
-
 public class AuthState
 {
     public bool IsLoggedIn { get; private set; }
@@ -103,101 +80,89 @@ public class AuthState
 }
 ```
 
-Simple and isolated. Each user gets their own copy via the scoped lifetime.
+Because it is scoped, each connected user gets a separate instance.
 
-### 3. Registering in Program.cs
+### 3. ProgressState: shared live state
+
+`ProgressState.cs` stores the shared progress value:
 
 ```csharp
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
-builder.Services.AddSingleton<ProgressState>();   // Shared
-builder.Services.AddScoped<AuthState>();          // Per-circuit
-```
-
-That's it. The DI container handles the rest.
-
-### 4. Injecting and Using in Components
-
-In your Razor component, inject both services:
-
-```razor
-@inject ProgressState ProgressState
-@inject AuthState AuthState
-@inject NavigationManager Navigation
-
-@if(AuthState.IsLoggedIn == true)
+public class ProgressState
 {
-    <h3>Progress</h3>
-    <p>Current Step: @ProgressState.CurrentStep</p>
-    
-    <button @onclick="NextStep">Next</button>
-}
-else 
-{
-    <p>Access denied.</p>
-}
+    public event Action? OnChange;
 
-@code {
-    protected override void OnInitialized()
+    private int _currentStep = 1;
+
+    public int CurrentStep
     {
-        // Subscribe to live updates
-        ProgressState.OnChange += HandleStateChanged;
-    }
-
-    private void HandleStateChanged()
-    {
-        // Re-render this component
-        InvokeAsync(StateHasChanged);
-    }
-
-    public void Dispose()
-    {
-        // Unsubscribe to prevent memory leaks
-        ProgressState.OnChange -= HandleStateChanged;
-    }
-
-    private void NextStep()
-    {
-        if (ProgressState.CurrentStep < 3)
-            ProgressState.CurrentStep++;
-    }
-}
-```
-
-**Critical Pattern:**
-1. Subscribe in `OnInitialized()` to the singleton's event.
-2. Call `InvokeAsync(StateHasChanged)` to safely request a re-render.
-3. **Unsubscribe in `Dispose()`** — this is essential to avoid memory leaks and ghost event handlers.
-
-### 5. The Login Flow
-
-In your login page:
-
-```razor
-@inject AuthState AuthState
-@inject NavigationManager Navigation
-
-<input @bind="Username" placeholder="Username" />
-<input @bind="Password" type="password" placeholder="Password" />
-<button @onclick="LoginToPage">Login</button>
-
-@code {
-    private string Username = "";
-    private string Password = "";
-
-    private void LoginToPage()
-    {
-        if (Username == "admin" && Password == "admin")
+        get => _currentStep;
+        set
         {
-            AuthState.Login();
-            Navigation.NavigateTo("/progress");
+            if (_currentStep == value) return;
+
+            _currentStep = value;
+            OnChange?.Invoke();
         }
     }
 }
 ```
+
+The `OnChange` event is the key mechanism for live updates.
+
+### 4. Login page flow
+
+`Login.razor` uses `AuthState` and `NavigationManager`.
+
+When the user enters valid credentials, the component calls `AuthState.Login()` and navigates to `/progress`.
+
+This gives each user their own authenticated session without sharing login state.
+
+### 5. Progress page flow
+
+`Progress.razor` injects both services:
+
+- `ProgressState` to read and update the shared step
+- `AuthState` to check whether the user is logged in
+
+If the user is authenticated, the page renders progress controls and step status.
+
+The component also subscribes to live state changes:
+
+```csharp
+protected override void OnInitialized()
+{
+    ProgressState.OnChange += HandleStateChanged;
+}
+
+private void HandleStateChanged()
+{
+    InvokeAsync(StateHasChanged);
+}
+
+public void Dispose()
+{
+    ProgressState.OnChange -= HandleStateChanged;
+}
+```
+
+This ensures the UI updates whenever the shared step changes.
+
+## Important design lessons
+
+- `Singleton` is for shared application state.
+- `Scoped` is for per-user, per-circuit state.
+- Use events and `StateHasChanged()` to push UI updates in Blazor.
+- Always unsubscribe in `Dispose()` to avoid memory leaks.
+
+## Why this matters
+
+For apps like ETL dashboards, shared workflow monitors, or collaboration tools, this pattern keeps the user experience responsive and consistent while preserving user isolation.
+
+It is a lightweight alternative to storing every state update in a database or external cache for simple real-time state sharing.
+
+## Run the app
+
+Build and run the Blazor Server app from the `BlazorApp1` folder. Then open the login page, authenticate, and navigate to progress to see the shared progress state in action.
 
 After login, `AuthState.IsLoggedIn` becomes `true` for that user's circuit only.
 
