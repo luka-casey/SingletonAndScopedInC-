@@ -176,24 +176,24 @@ After login, `AuthState.IsLoggedIn` becomes `true` for that user's circuit only.
 
 4. **Thread Safety:** The `lock` ensures concurrent updates don't corrupt the state (e.g., if two users click "Next" simultaneously).
 
-## Potential improvements / changes
+## Potential issues
 
-### ⚠️ Thread Safety
+### Thread Safety
 Ensure your singleton is thread-safe. Use `lock`, `Interlocked`, or concurrent collections. In this example, we lock around reads and writes to `_currentStep`.
 
-### ⚠️ Memory Leaks
+### Memory Leaks
 Always unsubscribe in `Dispose()`. If you forget, old event handlers remain in memory even after the user disconnects.
 
-### ⚠️ Single Server Only
+### Single Server Only
 This approach works great for a single server instance. If you scale to **multiple servers** (load-balanced), each server has its own singleton instance. State won't sync across servers. For that, you'd need:
 - A distributed cache (Redis)
 - A shared database
 - SignalR with a backplane (Redis/SQL)
 
-### ⚠️ Authentication Is Not Complete
+### Authentication Is Not Complete
 A scoped `AuthState` boolean is a teaching tool. For production, use ASP.NET Core's built-in **authentication system** with `AuthenticationStateProvider`, claims, and proper session management.
 
-### ⚠️ Event Invocation Must Be Safe
+### Event Invocation Must Be Safe
 Invoking delegates from within a lock can cause deadlocks. We snapshot the delegate inside the lock and invoke outside—this prevents the event handler from trying to acquire the same lock.
 
 ## Best Practices
@@ -208,7 +208,7 @@ Invoking delegates from within a lock can cause deadlocks. We snapshot the deleg
 
 5. **Test thread safety.** If your singleton is accessed by multiple users concurrently, write concurrent unit tests.
 
-## Going Further
+## Improvements
 
 ### Option 1: Add Async Support
 Use `TaskCompletionSource` or `Channels<T>` for async-friendly event patterns.
@@ -222,8 +222,4 @@ Replace `AuthState` with `AuthenticationStateProvider` and integrate with ASP.NE
 ### Option 4: Logging & Monitoring
 Add logging to `OnChange` events to track who triggered updates and when.
 
-## Conclusion
 
-Combining **singleton** and **scoped** services in Blazor Server is a clean, idiomatic way to achieve global real-time state alongside per-user isolation. With proper thread safety, cleanup (unsubscribe in `Dispose()`), and awareness of scaling limits, this pattern is production-ready for small to medium deployments.
-
-Happy coding! 🚀
