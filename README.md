@@ -176,7 +176,7 @@ After login, `AuthState.IsLoggedIn` becomes `true` for that user's circuit only.
 
 4. **Thread Safety:** The `lock` ensures concurrent updates don't corrupt the state (e.g., if two users click "Next" simultaneously).
 
-## Caveats and Considerations
+## Potential improvements / changes
 
 ### ⚠️ Thread Safety
 Ensure your singleton is thread-safe. Use `lock`, `Interlocked`, or concurrent collections. In this example, we lock around reads and writes to `_currentStep`.
